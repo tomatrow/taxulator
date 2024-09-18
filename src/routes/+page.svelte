@@ -220,7 +220,7 @@
 <script lang="ts">
 	let income = $state(100000)
 	let status: Status = $state("single")
-	let isSelfEmployed = $state(true)
+	let isSelfEmployed = $state(false)
 	let qualifiedBusinessIncomePercent = $state(0)
 
 	const california = $derived(getCaliforniaTax(income, status))
