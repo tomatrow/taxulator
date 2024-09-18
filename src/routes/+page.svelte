@@ -26,15 +26,19 @@
 		})
 	}
 
-	const currency: Action<HTMLInputElement> = function currency(element) {
-		let value = parseFloat(element.value)
+	const dualInputFormat: Action<
+		HTMLInputElement,
+		{ parseText?(value: string): number; formatNumber?(value: number): string } | undefined
+	> = function dualInputFormat(
+		element,
+		{ parseText = parseFloat, formatNumber = (value: number) => String(value) } = {}
+	) {
+		let value = parseText(element.value)
 
 		function beginTextMode() {
+			value = parseText(element.value)
 			element.type = "text"
-			value = parseFloat(element.value)
-			value = isNaN(value) ? 0 : value
-			value = Math.max(0, value)
-			element.value = currencyFormat(value)
+			element.value = formatNumber(value)
 		}
 
 		function beginNumberMode() {
@@ -177,13 +181,19 @@
 			.reduce((a, b) => a + b, 0)
 	}
 
-	function getFederalTax(income: number, status: Status, isSelfEmployed?: boolean) {
+	function getFederalTax(
+		income: number,
+		status: Status,
+		isSelfEmployed: boolean,
+		qualifiedBusinessIncomePercent: number
+	) {
 		const federalSelfEmploymentTaxRate = 0.153
 		const standardDeduction =
 			status === "single" || status === "married_filing_separately" ? 14600 : 27700
 
 		const selfEmploymentTax = isSelfEmployed ? income * federalSelfEmploymentTaxRate : 0
-		const selfEmploymentTaxDeduction = selfEmploymentTax / 2
+		const selfEmploymentTaxDeduction =
+			isSelfEmployed ? selfEmploymentTax / 2 + qualifiedBusinessIncomePercent * income : 0
 
 		const taxableIncome = income - selfEmploymentTaxDeduction - standardDeduction
 		const incomeTax = getIncomeTax(
@@ -211,12 +221,16 @@
 	let income = $state(100000)
 	let status: Status = $state("single")
 	let isSelfEmployed = $state(true)
+	let qualifiedBusinessIncomePercent = $state(0)
 
 	const california = $derived(getCaliforniaTax(income, status))
-	const federal = $derived(getFederalTax(income, status, isSelfEmployed))
+	const federal = $derived(
+		getFederalTax(income, status, isSelfEmployed, qualifiedBusinessIncomePercent / 100)
+	)
 	const tax = $derived(california.incomeTax + federal.incomeTax + federal.selfEmploymentTax)
 	const effectiveTaxRate = $derived(income && tax / income)
-	const runRate = $derived((income - tax) / 12)
+	const takeHomeIncome = $derived(income - tax)
+	const runRate = $derived(takeHomeIncome / 12)
 </script>
 
 <header>
@@ -224,9 +238,23 @@
 </header>
 
 <section>
+	<h3>Info</h3>
 	<form>
 		<label for="income">Income</label>
-		<input id="income" type="number" min={0} bind:value={income} use:currency />
+		<input
+			id="income"
+			type="number"
+			min={0}
+			bind:value={income}
+			use:dualInputFormat={{
+				parseText(value) {
+					const parsedValue = parseFloat(value)
+					if (isNaN(parsedValue)) return 0
+					return Math.max(0, parsedValue)
+				},
+				formatNumber: currencyFormat
+			}}
+		/>
 
 		<label for="status">Status</label>
 		<select id="status" bind:value={status}>
@@ -236,12 +264,22 @@
 			<option value="head_of_household">Head of Household</option>
 		</select>
 
-		<br />
-
-		<div>
+		<fieldset>
 			<input id="is_self_employed" type="checkbox" bind:checked={isSelfEmployed} />
 			<label for="is_self_employed">Self Employed</label>
-		</div>
+		</fieldset>
+
+		{#if isSelfEmployed}
+			<label for="qualified_business_income_percent">Qualified Business Income Percent</label>
+			<input
+				id="qualified_business_income_percent"
+				type="number"
+				min={0}
+				max={20}
+				bind:value={qualifiedBusinessIncomePercent}
+				use:dualInputFormat={{ formatNumber: value => `${value.toFixed(2)}%` }}
+			/>
+		{/if}
 	</form>
 </section>
 
@@ -260,6 +298,7 @@
 	<h3>Summary</h3>
 	<p>Tax: {currencyFormat(tax)}</p>
 	<p>Effective Tax Rate: {(effectiveTaxRate * 100).toFixed(2)}%</p>
+	<p>Take Home: {currencyFormat(takeHomeIncome)}</p>
 	<p>Run Rate: {currencyFormat(runRate)}/month</p>
 </section>
 
